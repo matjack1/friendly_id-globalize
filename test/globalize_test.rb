@@ -11,8 +11,18 @@ ActiveRecord::Base.establish_connection adapter: 'sqlite3', database: ':memory:'
 I18n.enforce_available_locales = false
 Globalize.fallbacks = {:en => [:en, :de], :de => [:de, :en]}
 
+class SeoMeta < ActiveRecord::Base
+  belongs_to :seoable, :polymorphic => true
+end
+
 class Article < ActiveRecord::Base
-  translates :slug, :title, fallbacks_for_empty_translations: true
+  translates :title, fallbacks_for_empty_translations: true
+
+  translation_class.instance_eval do
+    has_one :seo_meta, :as => :seoable, :class_name => "SeoMeta"
+    accepts_nested_attributes_for :seo_meta
+  end
+
   accepts_nested_attributes_for :translations
 
   extend FriendlyId
@@ -25,7 +35,12 @@ class FriendlyIdGlobalizeTest < ActiveRecord::Migration
       t.string   :name
     end
 
-    Article.create_translation_table! :slug => :string, :title => :string
+    create_table :seo_meta do |t|
+      t.string :slug
+      t.references :seoable, :polymorphic => true
+    end
+
+    Article.create_translation_table! :title => :string
   end
 end
 

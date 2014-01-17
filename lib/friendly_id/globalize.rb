@@ -61,6 +61,16 @@ current locale:
   I18n.with_locale(:it) { post.set_friendly_id("Guerre stellari") }
 
 =end
+  module FinderMethods
+    def first_by_friendly_id(id)
+      SeoMeta.where(slug: id, seoable_type: self.first.translation.class.name).first.try(:seoable).try(:globalized_model) if self.first
+    end
+
+    def exists_by_friendly_id?(id)
+      first_by_friendly_id(id)
+    end
+  end
+
   module Globalize
     class << self
 
@@ -70,6 +80,10 @@ current locale:
 
       def included(model_class)
         advise_against_untranslated_model(model_class)
+        model_class.instance_eval do
+          include Model
+          relation.class.send :include, FinderMethods
+        end
       end
 
       def advise_against_untranslated_model(model)
@@ -81,6 +95,18 @@ current locale:
         end
       end
       private :advise_against_untranslated_model
+
+    end
+
+    def friendly_id
+      if send(friendly_id_config.query_field) == nil
+        self.globalize_fallbacks(::Globalize.locale).each do |fallback|
+          ::Globalize.with_locale(fallback) { return super if super }
+        end
+        nil
+      else
+        super
+      end
     end
 
     def set_friendly_id(text, locale = nil)
@@ -90,7 +116,12 @@ current locale:
     end
 
     def should_generate_new_friendly_id?
-      translation_for(::Globalize.locale).send(friendly_id_config.slug_column).nil?
+      unless translation.seo_meta
+        translation.build_seo_meta
+        true
+      else
+        translation_for(::Globalize.locale).seo_meta.slug.nil?
+      end
     end
 
     def set_slug(normalized_slug = nil)
@@ -107,7 +138,17 @@ current locale:
       if should_generate_new_friendly_id?
         candidates = FriendlyId::Candidates.new(self, normalized_slug || send(friendly_id_config.base))
         slug = slug_generator.generate(candidates) || resolve_friendly_id_conflict(candidates)
-        translation.slug= slug
+        translation.seo_meta.slug= slug
+      end
+    end
+
+    module Model
+      def slug=(slug)
+        translation.seo_meta.slug = slug
+      end
+
+      def slug
+        translation.seo_meta.slug.presence if translation.seo_meta
       end
     end
   end
